@@ -7,6 +7,7 @@ import android.util.Log
 import com.google.android.things.pio.Gpio
 import com.google.android.things.pio.GpioCallback
 import com.google.android.things.pio.PeripheralManager
+import kotlinx.android.synthetic.main.activity_main.*
 import java.io.IOException
 
 /**
@@ -45,6 +46,10 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        pictureBtn.setOnClickListener {
+            mCamera.takePicture()
+        }
         // Attempt to access the GPIO
         motionSensor = try {
             PeripheralManager.getInstance()

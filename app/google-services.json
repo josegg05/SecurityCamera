@@ -1,0 +1,55 @@
+{
+  "project_info": {
+    "project_number": "814953745050",
+    "firebase_url": "https://securitycamera-6e30c.firebaseio.com",
+    "project_id": "securitycamera-6e30c",
+    "storage_bucket": "securitycamera-6e30c.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:814953745050:android:38c282f2463b48e4",
+        "android_client_info": {
+          "package_name": "com.example.ragnarok.securitycamera"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "814953745050-dn91rclern173f09ti5ccmioldmnoul1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.ragnarok.securitycamera",
+            "certificate_hash": "7205d582fa5b7f49ebb5db1c12376760ecace69b"
+          }
+        },
+        {
+          "client_id": "814953745050-a0mpa8dtlfultfgttp2nupkhqh6kl409.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDhWaUbaxheiFkzgGPyCwXZUAPLkIDBcsg"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 2,
+          "other_platform_oauth_client": [
+            {
+              "client_id": "814953745050-a0mpa8dtlfultfgttp2nupkhqh6kl409.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        },
+        "ads_service": {
+          "status": 2
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
