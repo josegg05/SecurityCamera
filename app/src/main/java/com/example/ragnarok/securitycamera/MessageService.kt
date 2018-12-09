@@ -1,6 +1,5 @@
 package com.example.ragnarok.securitycamera
 
-import android.content.Context
 import android.content.Intent
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
