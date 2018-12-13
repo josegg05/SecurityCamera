@@ -10,10 +10,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ImageReader
+import android.net.ConnectivityManager
+import android.net.wifi.WifiConfiguration
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.support.v4.content.LocalBroadcastManager
+import android.text.TextUtils
 import android.util.Log
 import android.widget.Toast
 import com.example.ragnarok.securitycamera.model.SecureMessage
@@ -21,11 +25,15 @@ import com.example.ragnarok.securitycamera.util.FirestoreUtil
 import com.example.ragnarok.securitycamera.util.StorageUtil
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
+import com.google.android.gms.tasks.OnFailureListener
 import com.google.android.things.pio.Gpio
 import com.google.android.things.pio.GpioCallback
 import com.google.android.things.pio.PeripheralManager
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.ml.vision.FirebaseVision
+import com.google.firebase.ml.vision.common.FirebaseVisionImage
+import com.google.firebase.ml.vision.label.FirebaseVisionLabelDetectorOptions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.android.synthetic.main.activity_main.*
 import kotlinx.coroutines.experimental.delay
@@ -64,7 +72,9 @@ private const val GPIO_LIGHT: String = "BCM16"
 private const val INPUT_DIR: Boolean = false
 private const val OUTPUT_DIR: Boolean = true
 private const val firabaseID:String = "SecuCam_012777"
-private const val deviceName:String = "SecuCam_012777"
+private const val deviceName:String = "SecuCam"
+private const val appName:String = "SecureCam_2018"
+private const val myPin:String = "123456"
 
 class MainActivity : Activity() {
 
@@ -73,10 +83,8 @@ class MainActivity : Activity() {
 
     private lateinit var mCamera: Camera
 
-    private val storage = FirebaseStorage.getInstance()
-    private val firestore = FirebaseFirestore.getInstance()
     private lateinit var connectionsClient: ConnectionsClient
-    var choice: Int? = 1
+    var choice: Int? = 0
     private lateinit var endpointID: String
 
     private var motionSensor: Gpio? = null
@@ -84,6 +92,13 @@ class MainActivity : Activity() {
     private var lightSensor: Gpio? = null
 
     private var validChannelID: Boolean = false
+
+
+    //ML
+    var personLabels = arrayOf("Dude", "Jeans", "Muscle", "Smile", "Glasses", "Standing", "Ear", "Selfie",
+        "Sunglasses", "Beard", "Goggles", "Moustache", "Hat", "Standing", "Hand", "Sitting")
+
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -99,8 +114,17 @@ class MainActivity : Activity() {
         }
 
         connectionsClient = Nearby.getConnectionsClient(this)
+
         startAdvertising()
-        FirebaseMessaging.getInstance().subscribeToTopic("rpi")
+        /*
+        if(!reviewMyNetStatus()){
+            Log.i("network", "No network connection")
+            startAdvertising()
+        }
+        else{
+            Log.i("net", "Connected to the network" + getCurrentSsid(this))
+        }
+        */
 
 
         // Attempt to access the GPIO
@@ -128,9 +152,13 @@ class MainActivity : Activity() {
             null
         }
 
+
         configureInput(motionSensor!!, INPUT_DIR, true)
         configureInput(flashActuator!!, OUTPUT_DIR, false)
         configureInput(lightSensor!!, INPUT_DIR, false)
+
+
+
     }
 
     override fun onDestroy() {
@@ -270,40 +298,47 @@ class MainActivity : Activity() {
 
 
     private fun onPictureTaken(bitmap: Bitmap) {
-        if (choice == 0) {
-            val file = saveImage(bitmap, "image01")
-            sendPayload(file)
-        } else {
-            uploadImage(bitmap)
-        }
-        // Process the captured image...
+        val mlOptions = FirebaseVisionLabelDetectorOptions.Builder()
+            .setConfidenceThreshold(0.65f)
+            .build()
+
+        val image = FirebaseVisionImage.fromBitmap(bitmap)
+        val detector = FirebaseVision.getInstance()
+            .getVisionLabelDetector(mlOptions)
+        val tagPhotoML = StringBuilder()
+        var validPhoto = false
+        val result = detector.detectInImage(image)
+            .addOnSuccessListener { labels ->
+                for (label in labels) {
+                    val text = label.label
+                    val entityId = label.entityId
+                    val confidence = label.confidence
+                    if (text in personLabels){
+                        tagPhotoML.append(" /" + text)
+                        validPhoto = true
+                    }
+                    Log.d("ML","label: " + text + " conf:" + confidence + "ID: " + entityId)
+                    // Process the captured image...
+                }
+                if (validPhoto)
+                    uploadImage(bitmap, tagPhotoML.toString())
+            }
+            .addOnFailureListener(
+                object : OnFailureListener {
+                    override fun onFailure(e: Exception) {
+                        // Task failed with an exception
+                        // ...
+                    }
+                })
 
         runOnUiThread {
             imageView.setImageBitmap(bitmap)
         }
     }
 
-    //TODO: Cambiar para enviar msj tipo Secure Message
-    private fun uploadImage(bitmap: Bitmap) {
-        /*
-        val stream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
-        val uuid = UUID.randomUUID()
-        val ref = "images/%s.jpg".format(uuid.toString())
-        val obj = mutableMapOf<String, Any>()
-        obj["ref"] = ref
-        val storageRef = storage.reference
-        val imageRef = storageRef.child(ref)
-        val uploadTask = imageRef.putBytes(stream.toByteArray())
-        uploadTask.addOnFailureListener {
-            uploadImage(bitmap)
-        }
-        uploadTask.addOnSuccessListener{
-            imageRef.downloadUrl.addOnSuccessListener {uri ->
-                obj["downloadURL"] = uri.toString()
-                firestore.collection("images").add(obj)
-            }
-        }*/
+
+    private fun uploadImage(bitmap: Bitmap, tagPhotoML: String) {
+
         val outputStream = ByteArrayOutputStream()
 
         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
@@ -313,7 +348,7 @@ class MainActivity : Activity() {
         StorageUtil.uploadMessageImage(selectedImageBytes, this) { imagePath ->
             Toast.makeText(this@MainActivity, "Foto Enviada", Toast.LENGTH_SHORT).show()
             val messageToSend =
-                SecureMessage(imagePath, filesize.toString(), "person", Calendar.getInstance().time,
+                SecureMessage(imagePath, filesize.toString(), "Posible Peligro. Tags:" + tagPhotoML, Calendar.getInstance().time,
                     firabaseID, deviceName)
             FirestoreUtil.sendMessage(messageToSend)
         }
@@ -325,45 +360,33 @@ class MainActivity : Activity() {
             .build()
         //val options = AdvertisingOptions(Strategy.P2P_CLUSTER)
         connectionsClient.startAdvertising(
-            "rpiRolf",
-            "rolf",
+            deviceName,
+            appName, //packageName,
             mConnectionLifecycleCallback,
             options)
             .addOnSuccessListener{
                 text1.text = "Advertising"
+                Log.d("advertising", "Starting Advertising")
             }
             .addOnFailureListener{
                 text1.text = it.message
+                Log.d("advertising", "Advertising Error")
             }
     }
 
-    // Callbacks for receiving payloads
-    private val mPayloadCallback = object : PayloadCallback() {
-        override fun onPayloadReceived(endpointId: String, payload: Payload) {
-            choice = payload.asBytes()?.get(0)?.toInt()
-            if (choice == 0 || choice == 1) {
-                mCamera.takePicture()
-            }
-        }
-
-        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
-            /*if (update.status == Status.SUCCESS) {
-
-            }*/
-        }
-    }
 
     private val mConnectionLifecycleCallback = object : ConnectionLifecycleCallback() {
 
         override fun onConnectionInitiated(endpointId: String, connectionInfo: ConnectionInfo) {
             // Automatically accept the connection on both sides.
-            endpointID = endpointId
             connectionsClient.acceptConnection(endpointId, mPayloadCallback)
+            connectionsClient.stopAdvertising()
         }
 
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             when (result.status.statusCode) {
                 ConnectionsStatusCodes.STATUS_OK -> {
+
                 }
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
                 }
@@ -380,6 +403,33 @@ class MainActivity : Activity() {
         }
     }
 
+    // Callbacks for receiving payloads
+    private val mPayloadCallback = object : PayloadCallback() {
+        override fun onPayloadReceived(endpointId: String, payload: Payload) {
+
+            val connPinPassByte:ByteArray = payload.asBytes()!!
+            val connPinPass = String(connPinPassByte, Charsets.UTF_8)
+            val pinPassConcat = connPinPass.split(":::")
+
+            if (pinPassConcat[1] == myPin) {
+                connectionsClient.sendPayload(endpointId, Payload.fromBytes(firabaseID.toByteArray(Charsets.UTF_8)))
+                val ssidNow = pinPassConcat[2].trim('"')
+                if (pinPassConcat[3].isNotEmpty()) {
+                    connectToWifi(ssidNow, pinPassConcat[3])
+                }
+            }
+            else{
+                connectionsClient.sendPayload(endpointId, Payload.fromBytes("Incorrecto".toByteArray(Charsets.UTF_8)))
+                connectionsClient.disconnectFromEndpoint(endpointId)
+            }
+        }
+
+        override fun onPayloadTransferUpdate(endpointId: String, update: PayloadTransferUpdate) {
+            /*if (update.status == Status.SUCCESS) {
+
+            }*/
+        }
+    }
 
     private fun startBackgroundThread() {
         mCameraThread = HandlerThread("CameraBackground")
@@ -402,5 +452,51 @@ class MainActivity : Activity() {
             choice = 1
             mCamera.takePicture()
         }
+    }
+
+    private fun connectToWifi(networkSSID: String, networkPass: String){
+        //Wifi
+        val wifiConf = WifiConfiguration()
+        val wifiManager = this.getSystemService(Context.WIFI_SERVICE) as WifiManager
+
+        wifiConf.SSID = "\"" + networkSSID + "\""
+        wifiConf.preSharedKey = "\""+ networkPass +"\""
+
+        wifiManager.addNetwork(wifiConf)
+
+        val list = wifiManager.configuredNetworks
+        for (i in list) {
+            if (i.SSID != null && i.SSID == "\"" + networkSSID + "\"") {
+                wifiManager.disconnect()
+                wifiManager.enableNetwork(i.networkId, true)
+                wifiManager.reconnect()
+
+                break
+            }
+        }
+    }
+
+    private fun reviewMyNetStatus():Boolean{
+        val connManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkInfo = connManager.getActiveNetworkInfo()
+        if (networkInfo.isConnected) {
+            return true
+        }
+        else{
+            return false
+        }
+    }
+    fun getCurrentSsid(context: Context): String? {
+        var ssid: String? = null
+        val connManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networkInfo = connManager.getActiveNetworkInfo()
+        if (networkInfo.isConnected) {
+            val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val connectionInfo = wifiManager.connectionInfo
+            if (connectionInfo != null && !TextUtils.isEmpty(connectionInfo.ssid)) {
+                ssid = connectionInfo.ssid
+            }
+        }
+        return ssid
     }
 }
